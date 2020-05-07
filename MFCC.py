@@ -87,6 +87,6 @@ def mfcc_fearture_extraction(source):
     return mfcc
 
 if __name__ == '__main__':
-    # vibration_product()
+    vibration_product()
     mfcc_fearture_extraction('vibration.wav')
 
