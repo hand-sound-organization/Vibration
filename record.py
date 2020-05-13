@@ -25,6 +25,7 @@ def vibration_product():
     for i in range(0, int(fs / chunk * seconds)):
         data = stream.read(chunk)
         frames.append(data)
+    print(frames)
 
     # Stop and close the stream
     stream.stop_stream()
@@ -41,3 +42,5 @@ def vibration_product():
     wf.setframerate(fs)
     wf.writeframes(b''.join(frames))
     wf.close()
+
+# vibration_product()

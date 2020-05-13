@@ -3,90 +3,144 @@ import scipy.io.wavfile
 from matplotlib import pyplot as plt
 from scipy.fftpack import dct
 from record import vibration_product
+from multiprocessing import Process
+import pyaudio
+import wave
 
-def mfcc_fearture_extraction(source):
-    sample_rate, signal = scipy.io.wavfile.read(source)
 
-    print(sample_rate, len(signal))
-    # 读取前3.5s 的数据
-    signal = signal[0:int(3.5 * sample_rate)]
-    print(len(signal))
-    # plt.plot(signal)
+class MFCC(Process):
+    def __init__(self, file):
+        super().__init__()
+        self.file = file
 
-    # 预先处理
-    pre_emphasis = 0.97
-    emphasized_signal = numpy.append(signal[0], signal[1:] - pre_emphasis * signal[:-1])
+    def run(self):
+        self.vibration_product()
+        self.mfcc_fearture_extraction(self.file)
 
-    frame_size = 0.025   # 0.025
-    frame_stride = 0.1  # 0.1
-    frame_length, frame_step = frame_size * sample_rate, frame_stride * sample_rate
-    signal_length = len(emphasized_signal)
-    frame_length = int(round(frame_length))
-    frame_step = int(round(frame_step))
-    num_frames = int(numpy.ceil(float(numpy.abs(signal_length - frame_length)) / frame_step))
+    def vibration_product(self):
+        chunk = 1024  # Record in chunks of 1024 samples
+        sample_format = pyaudio.paInt16  # 16 bits per sample
+        channels = 1
+        fs = 44100  # Record at 44100 samples per second
+        seconds = 1
+        filename = "vibration.wav"
 
-    pad_signal_length = num_frames * frame_step + frame_length
-    z = numpy.zeros((pad_signal_length - signal_length))
-    pad_signal = numpy.append(emphasized_signal, z)
+        p = pyaudio.PyAudio()  # Create an interface to PortAudio
 
-    indices = numpy.tile(numpy.arange(0, frame_length), (num_frames, 1)) + numpy.tile(
-        numpy.arange(0, num_frames * frame_step, frame_step), (frame_length, 1)).T
+        print('Recording')
 
-    frames = pad_signal[numpy.mat(indices).astype(numpy.int32, copy=False)]
+        stream = p.open(format=sample_format,
+                        channels=channels,
+                        rate=fs,
+                        frames_per_buffer=chunk,
+                        input=True)
 
-    # 加上汉明窗
-    frames *= numpy.hamming(frame_length)
-    # frames *= 0.54 - 0.46 * numpy.cos((2 * numpy.pi * n) / (frame_length - 1))  # Explicit Implementation **
+        frames = []  # Initialize array to store frames
 
-    # 傅立叶变换和功率谱
-    NFFT = 512
-    mag_frames = numpy.absolute(numpy.fft.rfft(frames, NFFT))  # Magnitude of the FFT
-    # print(mag_frames.shape)
-    pow_frames = ((1.0 / NFFT) * ((mag_frames) ** 2))  # Power Spectrum
+        # Store data in chunks for 3 seconds
+        for i in range(0, int(fs / chunk * seconds)):
+            data = stream.read(chunk)
+            frames.append(data)
+        print(frames)
 
-    low_freq_mel = 0
-    # 将频率转换为Mel
-    nfilt = 40
-    high_freq_mel = (2595 * numpy.log10(1 + (sample_rate / 2) / 700))
-    mel_points = numpy.linspace(low_freq_mel, high_freq_mel, nfilt + 2)  # Equally spaced in Mel scale
-    hz_points = (700 * (10 ** (mel_points / 2595) - 1))  # Convert Mel to Hz
+        # Stop and close the stream
+        stream.stop_stream()
+        stream.close()
+        # Terminate the PortAudio interface
+        p.terminate()
 
-    bin = numpy.floor((NFFT + 1) * hz_points / sample_rate)
+        print('Finished recording')
 
-    fbank = numpy.zeros((nfilt, int(numpy.floor(NFFT / 2 + 1))))
+        # Save the recorded data as a WAV file
+        wf = wave.open(filename, 'wb')
+        wf.setnchannels(channels)
+        wf.setsampwidth(p.get_sample_size(sample_format))
+        wf.setframerate(fs)
+        wf.writeframes(b''.join(frames))
+        wf.close()
 
-    for m in range(1, nfilt + 1):
-        f_m_minus = int(bin[m - 1])  # left
-        f_m = int(bin[m])  # center
-        f_m_plus = int(bin[m + 1])  # right
-        for k in range(f_m_minus, f_m):
-            fbank[m - 1, k] = (k - bin[m - 1]) / (bin[m] - bin[m - 1])
-        for k in range(f_m, f_m_plus):
-            fbank[m - 1, k] = (bin[m + 1] - k) / (bin[m + 1] - bin[m])
-    filter_banks = numpy.dot(pow_frames, fbank.T)
-    filter_banks = numpy.where(filter_banks == 0, numpy.finfo(float).eps, filter_banks)  # Numerical Stability
-    filter_banks = 20 * numpy.log10(filter_banks)  # dB
+    def mfcc_fearture_extraction(self,source):
+        sample_rate, signal = scipy.io.wavfile.read(source)
 
-    num_ceps = 20
-    mfcc = dct(filter_banks, type=2, axis=1, norm='ortho')[:, 1: (num_ceps + 1)]
-    (nframes, ncoeff) = mfcc.shape
+        print(sample_rate, len(signal))
+        # 读取前3.5s 的数据
+        signal = signal[0:int(1 * sample_rate)]
+        print(len(signal))
+        # plt.plot(signal)
 
-    n = numpy.arange(ncoeff)
-    cep_lifter = 22
-    lift = 1 + (cep_lifter / 2) * numpy.sin(numpy.pi * n / cep_lifter)
-    mfcc *= lift  # *
+        # 预先处理
+        pre_emphasis = 0.97
+        emphasized_signal = numpy.append(signal[0], signal[1:] - pre_emphasis * signal[:-1])
 
-    # filter_banks -= (numpy.mean(filter_banks, axis=0) + 1e-8)
-    mfcc -= (numpy.mean(mfcc, axis=0) + 1e-8)
-    # plt.imshow(numpy.flipud(mfcc.T), cmap=plt.cm.jet, aspect=0.2, extent=[0,mfcc.shape[0],0,mfcc.shape[1]])#热力图
+        frame_size = 0.0025  # 0.025  0.0025
+        frame_stride = 0.01  # 0.1    0.01
+        frame_length, frame_step = frame_size * sample_rate, frame_stride * sample_rate
+        signal_length = len(emphasized_signal)
+        frame_length = int(round(frame_length))
+        frame_step = int(round(frame_step))
+        num_frames = int(numpy.ceil(float(numpy.abs(signal_length - frame_length)) / frame_step))
 
-    print(mfcc.shape)
-    print(mfcc)
-    plt.plot(filter_banks)
-    plt.show()
-    return mfcc
+        pad_signal_length = num_frames * frame_step + frame_length
+        z = numpy.zeros((pad_signal_length - signal_length))
+        pad_signal = numpy.append(emphasized_signal, z)
 
-if __name__ == '__main__':
-    vibration_product()
-    mfcc_fearture_extraction('vibration.wav')
+        indices = numpy.tile(numpy.arange(0, frame_length), (num_frames, 1)) + numpy.tile(
+            numpy.arange(0, num_frames * frame_step, frame_step), (frame_length, 1)).T
 
+        frames = pad_signal[numpy.mat(indices).astype(numpy.int32, copy=False)]
+
+        # 加上汉明窗
+        frames *= numpy.hamming(frame_length)
+        # frames *= 0.54 - 0.46 * numpy.cos((2 * numpy.pi * n) / (frame_length - 1))  # Explicit Implementation **
+
+        # 傅立叶变换和功率谱
+        NFFT = 512
+        mag_frames = numpy.absolute(numpy.fft.rfft(frames, NFFT))  # Magnitude of the FFT
+        # print(mag_frames.shape)
+        pow_frames = ((1.0 / NFFT) * ((mag_frames) ** 2))  # Power Spectrum
+
+        low_freq_mel = 0
+        # 将频率转换为Mel
+        nfilt = 40
+        high_freq_mel = (2595 * numpy.log10(1 + (sample_rate / 2) / 700))
+        mel_points = numpy.linspace(low_freq_mel, high_freq_mel, nfilt + 2)  # Equally spaced in Mel scale
+        hz_points = (700 * (10 ** (mel_points / 2595) - 1))  # Convert Mel to Hz
+
+        bin = numpy.floor((NFFT + 1) * hz_points / sample_rate)
+
+        fbank = numpy.zeros((nfilt, int(numpy.floor(NFFT / 2 + 1))))
+
+        for m in range(1, nfilt + 1):
+            f_m_minus = int(bin[m - 1])  # left
+            f_m = int(bin[m])  # center
+            f_m_plus = int(bin[m + 1])  # right
+            for k in range(f_m_minus, f_m):
+                fbank[m - 1, k] = (k - bin[m - 1]) / (bin[m] - bin[m - 1])
+            for k in range(f_m, f_m_plus):
+                fbank[m - 1, k] = (bin[m + 1] - k) / (bin[m + 1] - bin[m])
+        filter_banks = numpy.dot(pow_frames, fbank.T)
+        filter_banks = numpy.where(filter_banks == 0, numpy.finfo(float).eps, filter_banks)  # Numerical Stability
+        filter_banks = 20 * numpy.log10(filter_banks)  # dB
+
+        num_ceps = 20
+        mfcc = dct(filter_banks, type=2, axis=1, norm='ortho')[:, 1: (num_ceps + 1)]
+        (nframes, ncoeff) = mfcc.shape
+
+        n = numpy.arange(ncoeff)
+        cep_lifter = 22
+        lift = 1 + (cep_lifter / 2) * numpy.sin(numpy.pi * n / cep_lifter)
+        mfcc *= lift  # *
+
+        # filter_banks -= (numpy.mean(filter_banks, axis=0) + 1e-8)
+        mfcc -= (numpy.mean(mfcc, axis=0) + 1e-8)
+        # plt.imshow(numpy.flipud(mfcc.T), cmap=plt.cm.jet, aspect=0.2, extent=[0,mfcc.shape[0],0,mfcc.shape[1]])#热力图
+
+        print(mfcc.shape)
+        print(mfcc)
+        plt.plot(filter_banks)
+        plt.show()
+        return mfcc
+
+# if __name__ == '__main__':
+#     vibration_product()
+#     mfcc_fearture_extraction('vibration.wav')
