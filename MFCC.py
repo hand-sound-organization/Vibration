@@ -6,7 +6,7 @@ from record import vibration_product
 from multiprocessing import Process
 import pyaudio
 import wave
-
+from Vector import Vector
 
 class MFCC(Process):
     def __init__(self, file):
@@ -135,11 +135,18 @@ class MFCC(Process):
         mfcc -= (numpy.mean(mfcc, axis=0) + 1e-8)
         # plt.imshow(numpy.flipud(mfcc.T), cmap=plt.cm.jet, aspect=0.2, extent=[0,mfcc.shape[0],0,mfcc.shape[1]])#热力图
 
-        print(mfcc.shape)
+        # print(mfcc.shape)
+        # print(mfcc)
+        # plt.plot(filter_banks)
+        # plt.axis([0,100,-20,135])
+        # plt.show()
+        mfcc = numpy.array(mfcc)
+        mfcc = mfcc.flatten()
+        mfcc = mfcc.reshape((1,2000))
         print(mfcc)
-        plt.plot(filter_banks)
-        plt.show()
-        return mfcc
+        Vector.mfcc_vectors = numpy.append(Vector.mfcc_vectors,mfcc,axis=0)
+        print(Vector.mfcc_vectors,Vector.mfcc_vectors.shape)
+
 
 # if __name__ == '__main__':
 #     vibration_product()
